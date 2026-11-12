@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 
 	"golang.org/x/net/html"
 )
@@ -51,6 +52,16 @@ type OpenGraph struct {
 	// of this OpenGraph object.
 	// This SHOULD NOT have any meaning for "OpenGraph Protocol".
 	Intent Intent `json:"-"`
+
+	// refreshMu guards atomic refresh bookkeeping and the metadata fields
+	// while a refresh commits or Snapshot copies them.
+	refreshMu sync.RWMutex
+	// refreshNext is the sequence number reserved by the most recent
+	// atomic refresh call.
+	refreshNext uint64
+	// refreshCommitted is the sequence number of the newest successful
+	// atomic commit.
+	refreshCommitted uint64
 }
 
 // New constructs new OpenGraph struct and fill nullable fields.
@@ -79,6 +90,12 @@ func Fetch(url string, intent ...Intent) (*OpenGraph, error) {
 
 // Fetch ...
 func (og *OpenGraph) Fetch() error {
+	if og.atomicRefreshEnabled() {
+		// Reserve the call's position before any I/O so completion order
+		// never decides which refresh is considered newer.
+		return og.fetchAtomic(og.beginRefresh())
+	}
+
 	if og.Intent.URL == "" {
 		return fmt.Errorf("no URL given yet")
 	}
@@ -136,6 +153,10 @@ func (og *OpenGraph) Fetch() error {
 // Parse parses http.Response.Body and construct OpenGraph informations.
 // Caller should close body after it gets parsed.
 func (og *OpenGraph) Parse(body io.Reader) error {
+	if og.atomicRefreshEnabled() {
+		return og.parseAtomic(og.beginRefresh(), body)
+	}
+
 	node, err := html.Parse(body)
 	if err != nil {
 		return err
@@ -145,6 +166,10 @@ func (og *OpenGraph) Parse(body io.Reader) error {
 
 // Walk scans HTML nodes to pick up meaningful OGP data.
 func (og *OpenGraph) Walk(node *html.Node) error {
+	if og.atomicRefreshEnabled() {
+		return og.walkAtomic(og.beginRefresh(), node)
+	}
+
 	if len(og.Intent.TrustedTags) == 0 {
 		if og.Intent.Strict {
 			og.Intent.TrustedTags = []string{HTMLMetaTag}

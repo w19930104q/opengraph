@@ -59,6 +59,36 @@ intent := opengraph.Intent{
 ogp, err := opengraph.Fetch("https://ogp.me", intent)
 ```
 
+## Concurrent atomic refresh
+
+Atomic refresh is opt-in and off by default. Enable it on the object's
+`Intent` by setting `AtomicRefresh` (or its alias `Atomic`), then call
+`Fetch`, `Parse`, and/or `Walk` concurrently from multiple goroutines:
+
+```go
+ogp := opengraph.New("https://example.com")
+ogp.Intent.AtomicRefresh = true
+
+go ogp.Fetch()
+go ogp.Parse(reader)
+go ogp.Walk(node)
+
+// Safe while refreshes are in flight.
+snapshot := ogp.Snapshot()
+fmt.Println(snapshot.Title)
+```
+
+Each successful call commits a complete page: fields missing from the new
+page are cleared. Calls are ordered by start time, so an older call that
+finishes late never overwrites a newer successful call. Failed calls (HTTP
+errors, non-2xx responses, read or media-number failures, cancellation)
+commit nothing. Atomic calls never mutate `Intent`.
+
+Read exported fields directly only when no refresh is running; use `Snapshot`
+for concurrent reads. Without atomic mode the original behavior and
+zero-value semantics are unchanged. `Snapshot` returns a deep copy, so
+mutating slices such as `Image` does not affect the object.
+
 Use any `io.Reader` as a data source:
 
 ```go

@@ -29,4 +29,21 @@ type Intent struct {
 	// Headers to be sent with the HTTP request.
 	// If nil, default browser-like headers will be used.
 	Headers map[string]string
+
+	// AtomicRefresh enables atomic refresh mode for concurrent calls to
+	// Fetch, Parse, and Walk on the same OpenGraph object.
+	//
+	// In this mode each successful call publishes a complete page snapshot;
+	// fields missing from the page are cleared. Calls are ordered by their
+	// start time, so an older call that finishes late never overwrites a
+	// newer successful call. Failed or cancelled calls never commit.
+	//
+	// The mode is off by default. Atomic refresh calls never modify Intent,
+	// and direct reads of OpenGraph's exported fields are only race-free
+	// when no call is in flight; use OpenGraph.Snapshot for concurrent reads.
+	AtomicRefresh bool
+
+	// Atomic is an alias for AtomicRefresh: setting either field enables
+	// atomic refresh mode.
+	Atomic bool
 }
